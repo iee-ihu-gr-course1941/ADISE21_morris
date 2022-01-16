@@ -20,11 +20,59 @@ function show_status() {
 function check_abort() {
 	global $mysqli;
 	
-	$sql = "update game_status set status='aborded', result=if(p_turn='W','B','W'),p_turn=null where p_turn is not null and last_change<(now()-INTERVAL 5 MINUTE) and status='started'";
+	$sql = "update game_status set status='aborted', result=if(p_turn='W','B','W'),p_turn=null where p_turn is not null and last_change<(now()-INTERVAL 5 MINUTE) and status='started'";
 	$st = $mysqli->prepare($sql);
 	$r = $st->execute();
 }
 
+function update_status_setup($color, $val) {
+	global $mysqli;
+	
+	if($color == "W")
+		$sql = "update game_status set w_setup=?";
+	elseif($color == "B")
+		$sql = "update game_status set b_setup=?";
+	$st = $mysqli->prepare($sql);
+	$st->bind_param('i',$val);
+	$st->execute();
+}
+
+function update_status_delete($color, $val) {
+	global $mysqli;
+	$p_turn = $color;
+	if($val == 0) {
+		if($p_turn=='W') {
+			$p_turn='B';
+		} else {
+			$p_turn='W';
+		}
+	}
+	if($color=='W') {
+		$sql = "update game_status set p_turn=?, w_delete=?";
+	} else {
+		$sql = "update game_status set p_turn=?, b_delete=?";
+	}
+
+	$st = $mysqli->prepare($sql);
+	$st->bind_param('si',$p_turn, $val);
+	$st->execute();
+
+	$st2=$mysqli->prepare('select count(*) as total_pieces from board where piece_color=?');
+	$st2->bind_param('s',$p_turn);
+	$st2->execute();
+	$res2 = $st2->get_result();
+	$total_pieces = $res2->fetch_assoc()['total_pieces'];
+
+	$status = read_status();
+
+	if(($status['w_setup'] == 1 && $status['b_setup'] == 1) && $total_pieces < 3) {
+		$new_status = 'aborted';
+		$st3 = $mysqli->prepare('update game_status set status=?, result=?,p_turn=null');
+		$st3->bind_param('ss',$new_status,$color);
+		$st3->execute();
+		print_r("\nCongratulations! You won the game!");
+	}
+}
 
 function update_game_status() {
 	global $mysqli;

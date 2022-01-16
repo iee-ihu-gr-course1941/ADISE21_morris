@@ -12,7 +12,55 @@ function show_piece($x,$y) {
 	header('Content-type: application/json');
 	print json_encode($res->fetch_all(MYSQLI_ASSOC), JSON_PRETTY_PRINT);
 }
-   
+
+function delete_piece($x,$y,$token) {
+	if($token==null || $token=='') {
+		header("HTTP/1.1 400 Bad Request");
+		print json_encode(['errormesg'=>"token is not set."]);
+		exit;
+	}
+	
+	$color = current_color($token);
+	if($color==null ) {
+		header("HTTP/1.1 400 Bad Request");
+		print json_encode(['errormesg'=>"You are not a player of this game."]);
+		exit;
+	}
+	$status = read_status();
+	if($status['status']!='started') {
+		header("HTTP/1.1 400 Bad Request");
+		print json_encode(['errormesg'=>"Game is not in action."]);
+		exit;
+	}
+	if($status['p_turn']!=$color) {
+		header("HTTP/1.1 400 Bad Request");
+		print json_encode(['errormesg'=>"It is not your turn."]);
+		exit;
+	}
+	if($color == "W") {
+		if($status['w_delete'] == 0) {
+			header("HTTP/1.1 400 Bad Request");
+			print json_encode(['errormesg'=>"You cannot remove a piece."]);
+			exit;
+		}
+	} elseif($color == "B") {
+		if($status['b_delete'] == 0) {
+			header("HTTP/1.1 400 Bad Request");
+			print json_encode(['errormesg'=>"You cannot remove a piece."]);
+			exit;
+		}
+	}
+	$orig_board=read_board();
+	$board=convert_board($orig_board);
+	if($board[$x][$y]['piece_color'] == $color) {
+		header("HTTP/1.1 400 Bad Request");
+		print json_encode(['errormesg'=>"You cannot remove your own piece."]);
+		exit;
+	}
+	do_delete($x,$y);
+	update_status_delete($color, 0);
+}
+
 function move_piece($x,$y,$x2,$y2,$token) {
 	
 	if($token==null || $token=='') {
@@ -38,6 +86,19 @@ function move_piece($x,$y,$x2,$y2,$token) {
 		print json_encode(['errormesg'=>"It is not your turn."]);
 		exit;
 	}
+	if($color == "W") {
+		if($status['w_delete'] == 1) {
+			header("HTTP/1.1 400 Bad Request");
+			print json_encode(['errormesg'=>"You must remove a piece first!"]);
+			exit;
+		}
+	} elseif($color == "B") {
+		if($status['b_delete'] == 1) {
+			header("HTTP/1.1 400 Bad Request");
+			print json_encode(['errormesg'=>"You must remove a piece first!"]);
+			exit;
+		}
+	}
 	$orig_board=read_board();
 	$board=convert_board($orig_board);
 	$n = add_valid_moves_to_piece($board,$color,$x,$y);
@@ -48,7 +109,60 @@ function move_piece($x,$y,$x2,$y2,$token) {
 	}
 	foreach($board[$x][$y]['moves'] as $i=>$move) {
 		if($x2==$move['x'] && $y2==$move['y']) {
+			$pieces_on_board = get_pieces_by_color($board, $color);
+			// Scenario gia 3,1
+			$millCount = 0;
+			// Gia na doulepsei h for prepei kanoume to do_move kai sto $board manually
+			$board[$x][$y]['piece_color'] = null;
+			$board[$x2][$y2]['piece_color'] = $color;
+			
+			for($i = 1;$i <= 3;$i++) {
+				print_r("Check x = $i y = $y2 color = $color\n");
+				if($board[$i][$y2]['piece_color'] == $color) {
+					$millCount += 1;
+				}
+			}
+
+			if($y2 == 4) {
+				for($i = 4;$i <= 6;$i++) {
+					if($board[$i][$y2]['piece_color'] == $color) {
+						$millCount += 1;
+					}
+				}
+			}
+			if($board[1][1]['piece_color'] == $color && $board[1][4]['piece_color'] == $color && $board[1][7]['piece_color'] == $color) {
+				$millCount = 3;
+			} elseif($board[1][2]['piece_color'] == $color && $board[1][4]['piece_color'] == $color && $board[1][6]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[1][3]['piece_color'] == $color && $board[1][4]['piece_color'] == $color && $board[1][5]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[2][1]['piece_color'] == $color && $board[2][2]['piece_color'] == $color && $board[2][3]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[2][5]['piece_color'] == $color && $board[2][6]['piece_color'] == $color && $board[2][7]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[3][3]['piece_color'] == $color && $board[4][4]['piece_color'] == $color && $board[3][5]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[3][2]['piece_color'] == $color && $board[5][4]['piece_color'] == $color && $board[3][6]['piece_color'] == $color) {
+				$millCount = 3;
+			}elseif($board[3][1]['piece_color'] == $color && $board[6][4]['piece_color'] == $color && $board[3][7]['piece_color'] == $color) {
+				$millCount = 3;
+			}
+
+			if($color == "W") {
+				if($status['w_setup'] == 0 && $pieces_on_board == 8) {
+					update_status_setup($color, 1);
+				}
+			} elseif($color == "B") {
+				if($status['b_setup'] == 0 && $pieces_on_board == 8) {
+					update_status_setup($color, 1);
+				}
+			}
 			do_move($x,$y,$x2,$y2);
+			print_r("\nmillCount = $millCount");
+			if($millCount == 3) {
+				update_status_delete($color, 1);
+				print_r("You have formed a mill! You must delete a piece.");
+			}
 			exit;
 		}
 	}
@@ -113,8 +227,8 @@ function show_board_by_player($b) {
 function add_valid_moves_to_board(&$board,$b) {
 	$number_of_moves=0;
 	
-	for($x=1;$x<9;$x++) {
-		for($y=1;$y<9;$y++) {
+	for($x=1;$x<6;$x++) {
+		for($y=1;$y<7;$y++) {
 			$number_of_moves+=add_valid_moves_to_piece($board,$b,$x,$y);
 		}
 	}
@@ -122,156 +236,166 @@ function add_valid_moves_to_board(&$board,$b) {
 }
 
 function add_valid_moves_to_piece(&$board,$b,$x,$y) {
-	$number_of_moves=0;
-	if($board[$x][$y]['piece_color']==$b) {
-		switch($board[$x][$y]['piece']){
-			case 'P': $number_of_moves+=pawn_moves($board,$b,$x,$y);break;
-			case 'K': $number_of_moves+=king_moves($board,$b,$x,$y);break;
-			case 'Q': $number_of_moves+=queen_moves($board,$b,$x,$y);break;
-			case 'R': $number_of_moves+=rook_moves($board,$b,$x,$y);break;
-			case 'N': $number_of_moves+=knight_moves($board,$b,$x,$y);break;
-			case 'B': $number_of_moves+=bishop_moves($board,$b,$x,$y);break;
-		}
-	} 
+	$pieces_on_board=get_pieces_by_color($board, $b);
+	$number_of_moves = valid_moves($board,$b,$x,$y,$pieces_on_board);
+
+	/*if($board[$x][$y]['piece_color']==$b) {
+		$number_of_moves+=pawn_moves($board,$b,$x,$y);
+	}*/
 	return($number_of_moves);
 }
 
-function king_moves(&$board,$b,$x,$y) {
+function get_pieces_by_color(&$board,$color) {
+	$pieces_on_board = 0;
+	foreach($board as $eleni=>$val){ 
+		foreach($val as $ikea=>$v){ 
+		    if($v['piece_color'] == $color)
+				$pieces_on_board++;
+		}
+	}
+	return($pieces_on_board);
+}
+
+function color_completed_setup($color) {
+	$status = read_status();
+	if($color == "W") {
+		if($status['w_setup'] == 1) {
+			return true;
+		}
+		return false;
+	} elseif($color == "B") {
+		if($status['b_setup'] == 1) {
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
+
+function valid_moves(&$board,$color,$x,$y,$pieces_on_board) {
 	$directions = [
 		[1,0],
 		[-1,0],
 		[0,1],
 		[0,-1],
-		[1,1],
-		[-1,1],
-		[1,-1],
-		[-1,-1]
-	];	
+
+	
+	];
+
+	
+	$valid_directions = [
+		"1,1" => [ [2,1], [1,4] ],
+		
+		"2,1" => [ [3,1], [1,1], [2,2] ],
+		
+		"3,1" => [ [2,1], [3,4] ],
+		//prwti seira
+		
+		"1,2" => [ [2,2], [2,4] ],
+		
+		"2,2" =>  [ [1,2], [3,2], [2,3], [2,1] ], 
+		
+		"3,2" => [ [2,2], [2,4] ],
+		
+		//2h seira
+		
+		"1,3" => [ [2,3], [3,4] ], 
+		
+		"2,3" => [ [1,3], [2,2], [3,3] ],
+		
+		"3,3" => [ [2,3], [4,4] ],
+		
+		//3h seira
+		
+		"1,4" => [ [2,4], [1,1], [1,7] ],
+		
+		"2,4" => [ [1,4], [3,4], [1,2], [1,6] ], 
+
+		"3,4" => [ [2,4], [1,5], [1,3] ],
+
+		"4,4" => [ [5,4], [3,3], [5,3] ],
+
+		"5,4" => [ [4,4], [6,4], [3,2], [3,6] ],
+
+		"6,4" => [ [5,4], [3,1], [3,7] ],	
+		
+		//4h seira 
+		
+		"1,5" => [ [2,5], [3,4] ], 
+		
+		"2,5" => [ [1,5], [3,5], [2,6] ],
+		
+		"3,5" => [ [2,5], [4,4] ], 
+		
+		//5h seira 
+		
+		"1,6" => [ [2,6], [1,4] ], 
+		
+		"2,6" => [ [1,6], [3,6], [2,5], [2,7] ],
+		
+		"3,6" => [ [2,6], [5,4] ], 
+		
+		//7h seira 
+		
+		"1,7" => [ [1,4], [2,7] ], 
+		
+		"2,7" => [ [1,7], [3,7], [2,6] ],
+		
+		"3,7" => [ [3,4], [2,7] ]
+	];
+	/*foreach($valid_directions["1,1"] as $v){
+		print_r($v);
+	}*/
+	
 	$moves=[];
-	foreach($directions as $d=>$direction) {
+	
+	
+
+	if(color_completed_setup($color) == false && $pieces_on_board < 9) {
+		foreach($board as $eleni=>$val){ 
+			foreach($val as $ikea=>$v){ 
+				if($x == 0 && $y == 0 && $v['piece_color'] == null) {
+					$move=['x'=>$v['x'], 'y'=>$v['y']];
+					$moves[]=$move;
+				}
+			}
+		}
+		
+		$board[$x][$y]['moves'] = $moves;
+		return(sizeof($moves));
+	}
+
+	$stringDirection = strval($x) . "," . strval($y);
+	foreach($valid_directions[$stringDirection] as $v1) {
+		if($board[$v1[0]][$v1[1]]['piece_color'] == null) {
+			$move=['x'=>$v1[0], 'y'=>$v1[1]];
+			$moves[]=$move;
+		}
+		
+	}
+	/*foreach($directions as $d=>$direction) {
 		$i=$x+$direction[0];
 		$j=$y+$direction[1];
-		if ( $i>=1 && $i<=8 && $j>=1 && $j<=8 && $board[$i][$j]['piece_color'] != $b) {
+		if ( $i>=1 && $i<=8 && $j>=1 && $j<=8 && $board[$i][$j]['piece_color'] != $color) {
 			$move=['x'=>$i, 'y'=>$j];
 			$moves[]=$move;
 		}
-	}
-	$board[$x][$y]['moves'] = $moves;
-	return(sizeof($moves));
-}
-function queen_moves(&$board,$b,$x,$y) {
-	$directions = [
-		[1,0],
-		[-1,0],
-		[0,1],
-		[0,-1],
-		[1,1],
-		[-1,1],
-		[1,-1],
-		[-1,-1]
-	];	
-	return(bishop_rook_queen_moves($board,$b,$x,$y,$directions));
+	}*/
 
-}
-function rook_moves(&$board,$b,$x,$y) {
-	$directions = [
-		[1,0],
-		[-1,0],
-		[0,1],
-		[0,-1]
-	];	
-	return(bishop_rook_queen_moves($board,$b,$x,$y,$directions));
-}
-function bishop_moves(&$board,$b,$x,$y) {
-	$directions = [
-		[1,1],
-		[-1,1],
-		[1,-1],
-		[-1,-1]
-	];	
-	return(bishop_rook_queen_moves($board,$b,$x,$y,$directions));
-}
-
-function bishop_rook_queen_moves(&$board,$b,$x,$y,$directions) {
-	$moves=[];
-
-	foreach($directions as $d=>$direction) {
-		for($i=$x+$direction[0],$j=$y+$direction[1]; $i>=1 && $i<=8 && $j>=1 && $j<=8; $i+=$direction[0], $j+=$direction[1]) {
-			if( $board[$i][$j]['piece_color'] == null ){ 
-				$move=['x'=>$i, 'y'=>$j];
-				$moves[]=$move;
-			} else if ( $board[$i][$j]['piece_color'] != $b) {
-				$move=['x'=>$i, 'y'=>$j];
-				$moves[]=$move;
-				// Υπάρχει πιόνι αντιπάλου... Δεν πάμε παραπέρα.
-				break;
-			} else if ( $board[$i][$j]['piece_color'] == $b) {
-				break;
-			}
-		}
-
-	}
 	$board[$x][$y]['moves'] = $moves;
 	return(sizeof($moves));
 }
 
-
-
-function knight_moves(&$board,$b,$x,$y) {
-	$m = [
-		[2,1],
-		[1,2],
-		[2,-1],
-		[1,-2],
-		[-2,1],
-		[-1,2],
-		[-2,-1],
-		[-1,-2],
-	];
-	$moves=[];
-	foreach($m as $k=>$t) {
-		$x2=$x+$t[0];
-		$y2=$y+$t[1];
-		if( $x2>=1 && $x2<=8 && $y2>=1 && $y2<=8 &&
-			$board[$x2][$y2]['piece_color'] !=$b ) {
-			// Αν ο προορισμός είναι εντός σκακιέρας και δεν υπάρχει δικό μου πιόνι
-			$move=['x'=>$x2, 'y'=>$y2];
-			$moves[]=$move;
-		}
-	}
-	$board[$x][$y]['moves'] = $moves;
-	return(sizeof($moves));
-}
-
-function pawn_moves(&$board,$b,$x,$y) {
+function do_delete($x, $y) {
+	global $mysqli;
 	
-	$direction=($b=='W')?1:-1;
-	$start_row = ($b=='W')?2:7;
-	$moves=[];
-	
-	$j=$y+$direction;
-	if($j<=8 && $j>=1 && $board[$x][$j]['piece_color']==null) {
-		$move=['x'=>$x, 'y'=>$j];
-		$moves[]=$move;
-		$j=$y+2*$direction;
-		if($j<=8 && $j>=1 && $y==$start_row && $board[$x][$j]['piece_color']==null) {
-			$move=['x'=>$x, 'y'=>$j];
-			$moves[]=$move;
-		}
-	}
-	$j=$y+$direction;
-	if($j>=1 && $j<=8) {
-		for($i=$x-1;$i<=$x+1;$i+=2) {
-			if($i>=1 && $i<=8 && $board[$i][$j]['piece_color']!=null && $board[$i][$j]['piece_color']!=$b) {
-				$move=['x'=>$i, 'y'=>$j];
-				$moves[]=$move;
-			}
-		}
-	}
+	$sql = "update board set piece_color=null where x=? and y=?";
+	$st = $mysqli->prepare($sql);
+	$st->bind_param('ii',$x,$y);
+	$st->execute();
 
-	$board[$x][$y]['moves'] = $moves;
-	return(sizeof($moves));
-	
+	header('Content-type: application/json');
+	print json_encode(read_board(), JSON_PRETTY_PRINT);
 }
 
 function do_move($x,$y,$x2,$y2) {
@@ -279,6 +403,18 @@ function do_move($x,$y,$x2,$y2) {
 	$sql = 'call `move_piece`(?,?,?,?);';
 	$st = $mysqli->prepare($sql);
 	$st->bind_param('iiii',$x,$y,$x2,$y2 );
+	$st->execute();
+
+	header('Content-type: application/json');
+	print json_encode(read_board(), JSON_PRETTY_PRINT);
+}
+
+function insert_pawn($x,$y,$color){
+	echo $x . " " . $y . " " . $color;
+	global $mysqli;
+	$sql = 'update board set piece_color=? where x=? and y=?';
+	$st = $mysqli->prepare($sql);
+	$st->bind_param('sii',$color, $x, $y);
 	$st->execute();
 
 	header('Content-type: application/json');

@@ -64,7 +64,9 @@ function handle_board($method,$input) {
         } else if ($method=='PUT') {
             move_piece($x,$y,$input['x'],$input['y'],  
                        $input['token']);
-        }    
+        } else if ($method=='DELETE') {
+            delete_piece($x,$y,$input['token']);
+        }
   
     
 }

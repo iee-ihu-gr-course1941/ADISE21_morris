@@ -76,6 +76,10 @@ CREATE TABLE `game_status` (
   `status` enum('not active','initialized','started','ended','aborded') NOT NULL DEFAULT 'not active',
   `p_turn` enum('W','B') DEFAULT NULL,
   `result` enum('B','W','D') DEFAULT NULL,
+  `b_setup` tinyint(1) DEFAULT 0,
+  `w_setup` tinyint(1) DEFAULT 0,
+  `b_delete` tinyint(1) DEFAULT 0,
+  `w_delete` tinyint(1) DEFAULT 0,
   `last_change` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -86,7 +90,7 @@ CREATE TABLE `game_status` (
 
 LOCK TABLES `game_status` WRITE;
 /*!40000 ALTER TABLE `game_status` DISABLE KEYS */;
-INSERT INTO `game_status` VALUES ('not active',NULL,NULL,'2021-11-22 18:04:52');
+INSERT INTO `game_status` VALUES ('not active',NULL,NULL,0,0,0,0,'2021-11-22 18:04:52');
 /*!40000 ALTER TABLE `game_status` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
@@ -157,7 +161,7 @@ BEGIN
 
 	update `players` set username=null, token=null;
 
-    update `game_status` set `status`='not active', `p_turn`=null, `result`=null;
+    update `game_status` set `status`='not active', `p_turn`=null, `result`=null, `b_setup`=0, `w_setup`=0, `b_delete`=0, `w_delete`=0;
 
     END ;;
 DELIMITER ;
@@ -178,17 +182,17 @@ DELIMITER ;;
 CREATE DEFINER=`root`@`localhost` PROCEDURE `move_piece`(x1 tinyint,y1 tinyint,x2 tinyint,y2 tinyint)
 BEGIN
 
-	declare  p, p_color char;
+	declare  p_color char;
 
 	
 
-	select  piece, piece_color into p, p_color FROM `board` WHERE X=x1 AND Y=y1;
+	select p_turn into p_color FROM `game_status`;
 
 	
 
 	update board
 
-	set piece=p, piece_color=p_color
+	set piece_color=p_color
 
 	where x=x2 and y=y2;
 
@@ -196,7 +200,7 @@ BEGIN
 
 	UPDATE board
 
-	SET piece=null,piece_color=null
+	SET piece_color=null
 
 	WHERE X=x1 AND Y=y1;
 

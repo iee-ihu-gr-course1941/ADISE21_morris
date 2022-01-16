@@ -66,11 +66,12 @@ function update_status_delete($color, $val) {
 	$status = read_status();
 
 	if(($status['w_setup'] == 1 && $status['b_setup'] == 1) && $total_pieces < 3) {
-		$new_status = 'aborted';
-		$st3 = $mysqli->prepare('update game_status set status=?, result=?,p_turn=null');
-		$st3->bind_param('ss',$new_status,$color);
-		$st3->execute();
+		$final_sql = "update game_status set status='aborted', result=?";
+		$final_st=$mysqli->prepare($final_sql);
+		$final_st->bind_param('s',$p_turn);
+		$final_st->execute();
 		print_r("\nCongratulations! You won the game!");
+		exit;
 	}
 }
 
